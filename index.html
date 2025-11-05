@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="./vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>7UP Tet Family Video Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'sevenup-green': '#009639',
+              'sevenup-red': '#dd2e28',
+            }
+          }
+        }
+      }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+      body {
+        font-family: 'Poppins', sans-serif;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^18.2.0/",
+    "react": "https://aistudiocdn.com/react@^18.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^18.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.28.0"
+  }
+}
+</script>
+<!-- Add Babel Standalone for in-browser JSX/TSX transpilation -->
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+  <body>
+    <div id="root"></div>
+    <!-- 
+      All application code is inlined here to prevent file-loading errors on static hosts.
+      Babel will transpile this entire block in one go.
+    -->
+    <script type="text/babel" data-type="module" data-presets="react,typescript">
+      import React, { useState, useCallback, useEffect } from 'react';
+      import ReactDOM from 'react-dom/client';
+      import { GoogleGenAI, Modality } from '@google/genai';
+
+      // --- From utils/fileUtils.ts ---
+      const fileToBase64 = (file) => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(file);
+          reader.onload = () => {
+            if (typeof reader.result === 'string') {
+              const base64String = reader.result.split(',')[1];
+              resolve(base64String);
+            } else {
+              reject(new Error('Failed to read file as base64 string.'));
+            }
+          };
+          reader.onerror = (error) => reject(error);
+        });
+      };
+
+      // --- From App.tsx ---
+      const LoadingSpinner = () => (
+          <svg className="animate-spin h-8 w-8 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+      );
+
+      const App = () => {
+          const [imageFile, setImageFile] = useState(null);
+          const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
+          const [isLoading, setIsLoading] = useState(false);
+          const [loadingMessage, setLoadingMessage] = useState('');
+          const [generatedVideoUrl, setGeneratedVideoUrl] = useState(null);
+          const [error, setError] = useState(null);
+          const [isApiKeySelected, setIsApiKeySelected] = useState(false);
+
+          useEffect(() => {
+              const checkApiKey = async () => {
+                  if (window.aistudio && await window.aistudio.hasSelectedApiKey()) {
+                      setIsApiKeySelected(true);
+                  }
+              };
+              checkApiKey();
+          }, []);
+
+          // Effect to clean up the object URL to prevent memory leaks.
+          useEffect(() => {
+              return () => {
+                  if (generatedVideoUrl && generatedVideoUrl.startsWith('blob:')) {
+                      URL.revokeObjectURL(generatedVideoUrl);
+                  }
+              };
+          }, [generatedVideoUrl]);
+
+          const handleFileChange = (event) => {
+              resetState();
+              const file = event.target.files?.[0];
+              if (file && (file.type === 'image/jpeg' || file.type === 'image/png')) {
+                  setImageFile(file);
+                  setImagePreviewUrl(URL.createObjectURL(file));
+              } else {
+                  setError('Please upload a valid JPG or PNG image.');
+                  setImageFile(null);
+                  setImagePreviewUrl(null);
+              }
+          };
+
+          const processImage = useCallback(async (base64Image, mimeType, prompt) => {
+              if (!process.env.API_KEY) {
+                  throw new Error("API key is not configured.");
+              }
+              const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+              const response = await ai.models.generateContent({
+                  model: 'gemini-2.5-flash-image',
+                  contents: {
+                      parts: [
+                          { inlineData: { data: base64Image, mimeType } },
+                          { text: prompt },
+                      ],
+                  },
+                  config: {
+                      responseModalities: [Modality.IMAGE],
+                  },
+              });
+
+              const imagePart = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+              if (imagePart && imagePart.inlineData) {
+                  return imagePart.inlineData.data;
+              }
+              throw new Error("Failed to process image.");
+          }, []);
+
+          const generateVideo = useCallback(async (base64Image) => {
+              if (!process.env.API_KEY) {
+                  throw new Error("API key is not configured.");
+              }
+              const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+              let operation = await ai.models.generateVideos({
+                  model: 'veo-3.1-generate-preview',
+                  prompt: "Animate this image of a family in festive Tet outfits. Add subtle celebratory gestures like waving, gentle swaying, and happy expressions. The background should be a festive, abstract Tet-themed scene with soft-focus lanterns and subtle firework sparkles. The video should be about 8 seconds long and loop smoothly.",
+                  image: { imageBytes: base64Image, mimeType: 'image/png' },
+                  config: {
+                      numberOfVideos: 1,
+                      resolution: '720p',
+                      aspectRatio: '16:9'
+                  }
+              });
+
+              while (!operation.done) {
+                  await new Promise(resolve => setTimeout(resolve, 10000));
+                  operation = await ai.operations.getVideosOperation({ operation: operation });
+              }
+              
+              const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+              if (!downloadLink) {
+                  throw new Error('Video generation failed, no download link found.');
+              }
+              
+              // Fetch the video as a blob and create an object URL for robust playback
+              const videoResponse = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+              if (!videoResponse.ok) {
+                throw new Error(`Failed to download video file: ${videoResponse.statusText}`);
+              }
+              const videoBlob = await videoResponse.blob();
+              return URL.createObjectURL(videoBlob);
+          }, []);
+
+          const handleCreateVideo = async () => {
+              if (!imageFile) {
+                  setError('Please upload an image first.');
+                  return;
+              }
+
+              setError(null);
+
+              if (window.aistudio && !(await window.aistudio.hasSelectedApiKey())) {
+                  try {
+                      await window.aistudio.openSelectKey();
+                      setIsApiKeySelected(true); // Assume success to avoid race condition
+                  } catch (e) {
+                      setError("You must select an API key to proceed.");
+                      return;
+                  }
+              }
+              
+              setIsLoading(true);
+
+              try {
+                  const base64Image = await fileToBase64(imageFile);
+                  
+                  setLoadingMessage('Step 1/3: Removing background...');
+                  const bgRemovedBase64 = await processImage(base64Image, imageFile.type, 'Remove the background from this image, keeping only the people. The output should be a PNG with a transparent background.');
+                  
+                  setLoadingMessage('Step 2/3: Dressing up for Tet...');
+                  const outfitSwappedBase64 = await processImage(bgRemovedBase64, 'image/png', "Change the clothes of the people in this image to fun, festive, celebratory Vietnamese 'Áo dài' outfits suitable for Tet (Lunar New Year). Keep their faces, hair, and poses exactly the same. The background must remain transparent.");
+
+                  setLoadingMessage('Step 3/3: Generating video... (This may take a few minutes)');
+                  const videoUrl = await generateVideo(outfitSwappedBase64);
+                  
+                  setGeneratedVideoUrl(videoUrl);
+              } catch (e) {
+                  const errorMessage = e?.message || 'An unknown error occurred.';
+                  if (errorMessage.includes("Requested entity was not found")) {
+                      setError("API Key error. Please try again and re-select your key.");
+                      setIsApiKeySelected(false);
+                  } else {
+                      setError(errorMessage);
+                  }
+              } finally {
+                  setIsLoading(false);
+                  setLoadingMessage('');
+              }
+          };
+
+          const resetState = () => {
+              setImageFile(null);
+              // Revoke the old URL before setting it to null
+              if (imagePreviewUrl) {
+                  URL.revokeObjectURL(imagePreviewUrl);
+              }
+              if (generatedVideoUrl && generatedVideoUrl.startsWith('blob:')) {
+                  URL.revokeObjectURL(generatedVideoUrl);
+              }
+              setImagePreviewUrl(null);
+              setGeneratedVideoUrl(null);
+              setError(null);
+              setIsLoading(false);
+          };
+
+          return (
+              <div className="bg-gray-900 min-h-screen flex flex-col items-center justify-center p-4 text-white">
+                  <div className="relative w-full max-w-2xl bg-gray-800 rounded-2xl shadow-2xl p-6 md:p-8 text-center border border-gray-700">
+                      <h1 className="text-3xl md:text-4xl font-bold text-green-400 mb-2">7UP Tet Family Video Generator</h1>
+                      <p className="text-gray-400 mb-8">Turn your family photo into a magical Tet celebration video!</p>
+
+                      {error && <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-lg mb-6">{error}</div>}
+
+                      {isLoading ? (
+                          <div className="h-64 flex flex-col items-center justify-center bg-gray-700/50 rounded-lg">
+                              <LoadingSpinner />
+                              <p className="mt-4 text-lg font-semibold text-green-300">{loadingMessage}</p>
+                          </div>
+                      ) : generatedVideoUrl ? (
+                          <div className="space-y-6">
+                              <video src={generatedVideoUrl} controls autoPlay loop className="w-full rounded-lg shadow-lg aspect-video" />
+                              <button onClick={resetState} className="w-full bg-sevenup-green hover:opacity-90 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50">
+                                  Create Another Video
+                              </button>
+                          </div>
+                      ) : (
+                          <div className="space-y-6">
+                              <div className="h-64 border-2 border-dashed border-gray-600 rounded-lg flex items-center justify-center bg-gray-900/50">
+                                  {imagePreviewUrl ? (
+                                      <img src={imagePreviewUrl} alt="Family photo preview" className="max-h-full max-w-full object-contain rounded-md" />
+                                  ) : (
+                                      <div className="text-gray-500">
+                                          <svg className="mx-auto h-12 w-12" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                                              <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 4v.01M28 8l4.586-4.586a2 2 0 012.828 0L39 7M28 8v8h8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                          </svg>
+                                          <p className="mt-2">Upload a JPG or PNG family photo</p>
+                                      </div>
+                                  )}
+                              </div>
+                              
+                              <label htmlFor="file-upload" className="cursor-pointer w-full inline-block bg-gray-700 hover:bg-gray-600 text-green-300 font-semibold py-3 px-4 rounded-lg transition-colors">
+                                  {imageFile ? 'Change Photo' : 'Select Photo'}
+                              </label>
+                              <input id="file-upload" name="file-upload" type="file" className="sr-only" accept="image/jpeg, image/png" onChange={handleFileChange} />
+                              
+                              {!isApiKeySelected && (
+                                  <div className="bg-blue-900/50 text-blue-200 p-4 rounded-lg text-sm text-left space-y-2">
+                                      <p>This app uses Google's Veo model which requires you to select your own API key. Billing for API usage will be applied to your associated Google Cloud project.</p>
+                                      <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Learn more about billing.</a>
+                                  </div>
+                              )}
+                              
+                              <button onClick={handleCreateVideo} disabled={!imageFile} className="w-full bg-sevenup-green hover:opacity-90 disabled:bg-gray-500 disabled:cursor-not-allowed text-white font-bold py-4 px-4 rounded-lg transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 text-lg">
+                                  Create My 7UP Tet Video!
+                              </button>
+                          </div>
+                      )}
+                  </div>
+                  <footer className="mt-8 text-sm text-gray-500">
+                      A festive experience powered by Google Gemini and Veo.
+                  </footer>
+              </div>
+          );
+      }
+
+      // --- From index.tsx ---
+      const rootElement = document.getElementById('root');
+      if (!rootElement) {
+        throw new Error("Could not find root element to mount to");
+      }
+
+      const root = ReactDOM.createRoot(rootElement);
+      root.render(
+        <React.StrictMode>
+          <App />
+        </React.StrictMode>
+      );
+    </script>
+  </body>
+</html>
