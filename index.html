@@ -46,6 +46,9 @@
       Babel will transpile this entire block in one go.
     -->
     <script type="text/babel" data-type="module" data-presets="react,typescript">
+      // IMPORTANT: The user's API Key is hardcoded below.
+      const API_KEY = 'AIzaSyCC-BSS-Di2PX0JmdtVkmOwl6EFZgJ0Zzg';
+
       import React, { useState, useCallback, useEffect } from 'react';
       import ReactDOM from 'react-dom/client';
       import { GoogleGenAI, Modality } from '@google/genai';
@@ -82,17 +85,7 @@
           const [loadingMessage, setLoadingMessage] = useState('');
           const [generatedVideoUrl, setGeneratedVideoUrl] = useState(null);
           const [error, setError] = useState(null);
-          const [isApiKeySelected, setIsApiKeySelected] = useState(false);
-
-          useEffect(() => {
-              const checkApiKey = async () => {
-                  if (window.aistudio && await window.aistudio.hasSelectedApiKey()) {
-                      setIsApiKeySelected(true);
-                  }
-              };
-              checkApiKey();
-          }, []);
-
+          
           // Effect to clean up the object URL to prevent memory leaks.
           useEffect(() => {
               return () => {
@@ -116,10 +109,7 @@
           };
 
           const processImage = useCallback(async (base64Image, mimeType, prompt) => {
-              if (!process.env.API_KEY) {
-                  throw new Error("API key is not configured.");
-              }
-              const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+              const ai = new GoogleGenAI({ apiKey: API_KEY });
               const response = await ai.models.generateContent({
                   model: 'gemini-2.5-flash-image',
                   contents: {
@@ -141,10 +131,7 @@
           }, []);
 
           const generateVideo = useCallback(async (base64Image) => {
-              if (!process.env.API_KEY) {
-                  throw new Error("API key is not configured.");
-              }
-              const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+              const ai = new GoogleGenAI({ apiKey: API_KEY });
               let operation = await ai.models.generateVideos({
                   model: 'veo-3.1-generate-preview',
                   prompt: "Animate this image of a family in festive Tet outfits. Add subtle celebratory gestures like waving, gentle swaying, and happy expressions. The background should be a festive, abstract Tet-themed scene with soft-focus lanterns and subtle firework sparkles. The video should be about 8 seconds long and loop smoothly.",
@@ -167,7 +154,7 @@
               }
               
               // Fetch the video as a blob and create an object URL for robust playback
-              const videoResponse = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+              const videoResponse = await fetch(`${downloadLink}&key=${API_KEY}`);
               if (!videoResponse.ok) {
                 throw new Error(`Failed to download video file: ${videoResponse.statusText}`);
               }
@@ -180,17 +167,11 @@
                   setError('Please upload an image first.');
                   return;
               }
-
               setError(null);
 
-              if (window.aistudio && !(await window.aistudio.hasSelectedApiKey())) {
-                  try {
-                      await window.aistudio.openSelectKey();
-                      setIsApiKeySelected(true); // Assume success to avoid race condition
-                  } catch (e) {
-                      setError("You must select an API key to proceed.");
-                      return;
-                  }
+              if (!API_KEY || API_KEY === 'YOUR_API_KEY_HERE') {
+                  setError("API key not configured. Please edit index.html and replace 'YOUR_API_KEY_HERE' with your actual key.");
+                  return;
               }
               
               setIsLoading(true);
@@ -210,12 +191,7 @@
                   setGeneratedVideoUrl(videoUrl);
               } catch (e) {
                   const errorMessage = e?.message || 'An unknown error occurred.';
-                  if (errorMessage.includes("Requested entity was not found")) {
-                      setError("API Key error. Please try again and re-select your key.");
-                      setIsApiKeySelected(false);
-                  } else {
-                      setError(errorMessage);
-                  }
+                  setError(errorMessage);
               } finally {
                   setIsLoading(false);
                   setLoadingMessage('');
@@ -276,13 +252,6 @@
                                   {imageFile ? 'Change Photo' : 'Select Photo'}
                               </label>
                               <input id="file-upload" name="file-upload" type="file" className="sr-only" accept="image/jpeg, image/png" onChange={handleFileChange} />
-                              
-                              {!isApiKeySelected && (
-                                  <div className="bg-blue-900/50 text-blue-200 p-4 rounded-lg text-sm text-left space-y-2">
-                                      <p>This app uses Google's Veo model which requires you to select your own API key. Billing for API usage will be applied to your associated Google Cloud project.</p>
-                                      <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Learn more about billing.</a>
-                                  </div>
-                              )}
                               
                               <button onClick={handleCreateVideo} disabled={!imageFile} className="w-full bg-sevenup-green hover:opacity-90 disabled:bg-gray-500 disabled:cursor-not-allowed text-white font-bold py-4 px-4 rounded-lg transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 text-lg">
                                   Create My 7UP Tet Video!
