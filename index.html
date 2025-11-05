@@ -46,6 +46,9 @@
       Babel will transpile this entire block in one go.
     -->
     <script type="text/babel" data-type="module" data-presets="react,typescript">
+      // Polyfill 'process' to prevent "process is not defined" errors from dependencies.
+      window.process = window.process || { env: {} };
+
       // IMPORTANT: The user's API Key is hardcoded below.
       const API_KEY = 'AIzaSyCC-BSS-Di2PX0JmdtVkmOwl6EFZgJ0Zzg';
 
